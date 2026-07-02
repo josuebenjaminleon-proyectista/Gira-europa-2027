@@ -8,7 +8,7 @@ st.set_page_config(page_title="Planificador de Viajes Pro 2027", page_icon="✈�
 
 # --- CONEXIÓN A GOOGLE SHEETS ---
 # REEMPLAZA EL LINK DE ABAJO CON EL TUYO DE GOOGLE SHEETS
-URL_SHEET = "https://docs.google.com/spreadsheets/d/1DO-CSMEZgfRVAzGDhkdcpklNRPd0q7UlObIdT1ZTcoM/edit?usp=sharing"
+URL_SHEET = "https://docs.google.com/spreadsheets/d/1DO-CSMEZgfRVAzGDhkdcpklNRPd0q7UlObIdT1ZTcoM/edit?gid=244829372#gid=244829372"
 
 CATEGORIAS_GASTO = ["Alojamiento", "Vuelos / Trenes", "Comida (Desayuno/Almuerzo/Cena)", "Transporte / Uber / Metro", "Atracciones / Tickets", "Imprevistos / Shopping"]
 CIUDADES = ["Santiago (Inicio/Fin)", "París (Francia)", "Venecia (Italia)", "Roma (Italia)", "Otro Destino"]
