@@ -1,154 +1,102 @@
 import streamlit as st
 import pandas as pd
-import requests
+import os
+import io
 
-st.set_page_config(page_title="Planificador de Viajes Pro 2027", page_icon="✈️", layout="wide")
-
-# Validar configuraciones de Secrets
-try:
-    LINK_ORIGINAL = st.secrets["general"]["spreadsheet_url"]
-    SCRIPT_URL = st.secrets["general"]["script_url"]
-    sheet_id = LINK_ORIGINAL.split("/d/")[1].split("/")[0]
-    URL_BASE = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet="
-except Exception:
-    st.error("Por favor, asegúrate de configurar 'spreadsheet_url' y 'script_url' en los Secrets de Streamlit Cloud.")
-    st.stop()
-
-def leer_pestaña(nombre_pestaña):
-    try:
-        return pd.read_csv(f"{URL_BASE}{nombre_pestaña}&nocache={pd.Timestamp.now().microsecond}").dropna(how="all")
-    except:
-        return pd.DataFrame()
-
-# Cargar datos desde la nube
-df_itinerario = leer_pestaña("itinerario")
-df_gastos = leer_pestaña("gastos")
-df_cal_rutas = leer_pestaña("rutas")
-df_alojamientos = leer_pestaña("alojamientos")
-df_checklist = leer_pestaña("checklist")
-
-# --- MENSAJE DE DIAGNÓSTICO EN VIVO ---
-st.sidebar.markdown("### 🔍 Estado de Conexión")
-if df_gastos.empty and df_itinerario.empty:
-    st.sidebar.warning("⚠️ No se lee ninguna pestaña. Verifica que el enlace público de Google Sheets sea correcto.")
-else:
-    st.sidebar.success("🟢 Conectado con éxito a Google Sheets")
-
-if df_gastos.empty: df_gastos = pd.DataFrame(columns=["Fecha", "Concepto / Ítem", "Categoría", "Ciudad", "Costo ($)", "Persona"])
-if df_itinerario.empty: df_itinerario = pd.DataFrame(columns=["Fecha", "Hora", "Ciudad", "Actividad", "Lugar / Ubicación", "Reserva / Ticket"])
-if df_alojamientos.empty: df_alojamientos = pd.DataFrame(columns=["País / Ciudad", "Nombre del Alojamiento", "Check-In (Entrada)", "Check-Out (Salida)", "Link de Booking / Enlace"])
-if df_checklist.empty: df_checklist = pd.DataFrame(columns=["Categoría", "Tarea", "Hecho"])
-
-if not df_gastos.empty and "Costo ($)" in df_gastos.columns:
-    df_gastos["Costo ($)"] = pd.to_numeric(df_gastos["Costo ($)"], errors='coerce').fillna(0.0)
-
-# CONECTOR HTTP OPTIMIZADO
-def enviar_a_google(nombre_pestaña, lista_datos):
-    payload = {"pestaña": nombre_pestaña, "datos": lista_datos}
-    try:
-        res = requests.post(SCRIPT_URL, json=payload, timeout=15)
-        if res.status_code == 200:
-            respuesta_json = res.json()
-            if respuesta_json.get("status") == "success":
-                st.success("¡Guardado exitosamente en Google Sheets!")
-                st.balloons()
-                return True
-            else:
-                st.error(f"Error devuelto por Google Sheets: {respuesta_json.get('message')}")
-                st.info(f"💡 Pista: Ve a tu Google Sheets y verifica que la pestaña de abajo se llame exactamente '{nombre_pestaña}' sin mayúsculas ni espacios.")
-        else:
-            st.error(f"Error de conexión con el servidor (Código {res.status_code}).")
-    except Exception as e:
-        st.error(f"No se pudo conectar con Google Sheets: {e}")
-    return False
-
-# Estilos visuales
-st.markdown("""
-    <style>
-    .block-container { padding-top: 1rem; }
-    .stMetric { background-color: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #e9ecef; }
-    div[data-testid="stForm"] { background-color: #ffffff; border-radius: 12px; padding: 18px; border: 1px solid #dee2e6; }
-    </style>
-""", unsafe_allow_html=True)
+# --- CONFIGURACIÓN DE ARCHIVOS LOCALES ---
+ITINERARIO_FILE = "itinerario_viaje.csv"
+GASTOS_FILE = "gastos_viaje.csv"
+CALENDARIO_RUTAS_FILE = "calendario_rutas_2027.csv"
+ALOJAMIENTOS_FILE = "alojamientos_viaje.csv"
+CHECKLIST_FILE = "checklist_viaje.csv"
 
 CATEGORIAS_GASTO = ["Alojamiento", "Vuelos / Trenes", "Comida (Desayuno/Almuerzo/Cena)", "Transporte / Uber / Metro", "Atracciones / Tickets", "Imprevistos / Shopping"]
 CIUDADES = ["Santiago (Inicio/Fin)", "París (Francia)", "Venecia (Italia)", "Roma (Italia)", "Otro Destino"]
 INTEGRANTES = ["General / Común", "Josue", "Cesia", "Amparo", "Clara", "Ruth", "Milca"]
 
-st.sidebar.markdown("# ✈️ Euro-Tour 2027")
-seleccion = st.sidebar.radio("Ir a la sección:", ["📊 Tablero y Finanzas", "🗓️ Ruta País 2027", "🏨 Alojamientos y Links", "🗺️ Itinerario x Horas", "💰 Gastos Personales", "🎒 Check-list de Maleta"])
+# Inicialización segura de las Bases de Datos
+if os.path.exists(ITINERARIO_FILE):
+    df_itinerario = pd.read_csv(ITINERARIO_FILE)
+else:
+    df_itinerario = pd.DataFrame(columns=["Fecha", "Hora", "Ciudad", "Actividad", "Lugar / Ubicación", "Reserva / Ticket"])
 
-def renderizar_pestaña_persona(p_nombre):
-    df_p = df_gastos[df_gastos["Persona"] == p_nombre].copy() if not df_gastos.empty else pd.DataFrame()
-    st.metric(label=f"Monto Total Acumulado — {p_nombre}", value=f"${df_p['Costo ($)'].sum():,.0f}")
-    
-    with st.form(f"form_g_{p_nombre}", clear_on_submit=True):
-        f_gasto = st.date_input("Fecha Pago")
-        concepto = st.text_input("Concepto / Detalle de Gasto").strip()
-        cat_g = st.selectbox("Categoría", CATEGORIAS_GASTO)
-        ciudad_g = st.selectbox("Ubicación Geográfica", CIUDADES)
-        monto_g = st.number_input("Monto en pesos ($)", min_value=0.0, step=1000.0, format="%.0f")
-        
-        if st.form_submit_button("💾 Guardar Gasto"):
-            if concepto and monto_g > 0:
-                fila = [f_gasto.strftime("%Y-%m-%d"), concepto, cat_g, ciudad_g, float(monto_g), p_nombre]
-                if enviar_a_google("gastos", fila):
-                    st.rerun()
-            else:
-                st.warning("Completa el concepto y un costo mayor a cero.")
+if os.path.exists(GASTOS_FILE):
+    df_gastos = pd.read_csv(GASTOS_FILE)
+    if "Persona" not in df_gastos.columns:
+        df_gastos["Persona"] = "General / Común"
+else:
+    df_gastos = pd.DataFrame(columns=["Fecha", "Concepto / Ítem", "Categoría", "Ciudad", "Costo ($)", "Persona"])
 
-    if not df_p.empty:
-        st.dataframe(df_p[["Fecha", "Concepto / Ítem", "Categoría", "Ciudad", "Costo ($)"]], use_container_width=True, hide_index=True)
+if os.path.exists(ALOJAMIENTOS_FILE):
+    df_alojamientos = pd.read_csv(ALOJAMIENTOS_FILE)
+else:
+    df_alojamientos = pd.DataFrame(columns=["País / Ciudad", "Nombre del Alojamiento", "Check-In (Entrada)", "Check-Out (Salida)", "Link de Booking / Enlace"])
 
-if seleccion == "📊 Tablero y Finanzas":
-    st.title("📊 Resumen General del Viaje (2027)")
-    kpi1, kpi2, kpi3 = st.columns(3)
-    kpi1.metric("💰 Costo Total Acumulado", f"${df_gastos['Costo ($)'].sum():,.0f}")
-    kpi2.metric("🏨 Total en Alojamientos", f"${df_gastos[df_gastos['Categoría'] == 'Alojamiento']['Costo ($)'].sum():,.0f}")
-    kpi3.metric("📍 Eventos en Itinerario", f"{len(df_itinerario)} hitos")
-    st.markdown("---")
-    resumen_personas = [{"Integrante": p, "Total Gastado ($)": df_gastos[df_gastos["Persona"] == p]["Costo ($)"].sum()} for p in INTEGRANTES]
-    st.dataframe(pd.DataFrame(resumen_personas), use_container_width=True, hide_index=True)
+if os.path.exists(CHECKLIST_FILE):
+    df_checklist = pd.read_csv(CHECKLIST_FILE)
+    df_checklist["Hecho"] = df_checklist["Hecho"].astype(bool)
+else:
+    tareas_base = [
+        {"Categoría": "📋 Documentación Crítica", "Tarea": "Pasaporte vigente (¡Revisar fechas!)", "Hecho": False},
+        {"Categoría": "📋 Documentación Crítica", "Tarea": "Seguro médico internacional con cobertura Europa", "Hecho": False},
+        {"Categoría": "📋 Documentación Crítica", "Tarea": "Reservas impresas de Hoteles/Vuelos", "Hecho": False},
+        {"Categoría": "📦 Cosas de Equipaje", "Tarea": "Adaptadores para punches de Italia/Francia", "Hecho": False},
+        {"Categoría": "📦 Cosas de Equipaje", "Tarea": "Baterías portátiles cargadas", "Hecho": False},
+        {"Categoría": "📦 Cosas de Equipaje", "Tarea": "Medicamentos personales", "Hecho": False},
+        {"Categoría": "📦 Cosas de Equipaje", "Tarea": "Zapatillas cómodas para caminar", "Hecho": False}
+    ]
+    df_checklist = pd.DataFrame(tareas_base)
+    df_checklist.to_csv(CHECKLIST_FILE, index=False)
 
-elif seleccion == "🗓️ Ruta País 2027":
-    st.title("🗓️ Calendario de Ubicación Geográfica")
-    st.dataframe(df_cal_rutas, use_container_width=True, hide_index=True)
+# Rango de fechas estricto del viaje (22 de Junio al 07 de Julio 2027)
+rango_fechas_viaje = [
+    "2027-06-22", "2027-06-23", "2027-06-24", "2027-06-25", "2027-06-26",
+    "2027-06-27", "2027-06-28", "2027-06-29", "2027-06-30", "2027-07-01",
+    "2027-07-02", "2027-07-03", "2027-07-04", "2027-07-05", "2027-07-06", "2027-07-07"
+]
+dias_semana_mapeo = ["Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo", "Lunes", "Martes", "Miércoles"]
 
-elif seleccion == "🏨 Alojamientos y Links":
-    st.title("🏨 Registro de Alojamientos y Reservas")
-    with st.form("form_alojamientos", clear_on_submit=True):
-        pais_al = st.selectbox("País / Ciudad", CIUDADES)
-        nombre_al = st.text_input("Nombre del Hotel / Depto").strip()
-        checkin = st.date_input("Fecha Check-In")
-        checkout = st.date_input("Fecha Check-Out")
-        link_bk = st.text_input("Link de Booking").strip()
-        if st.form_submit_button("💾 Guardar Alojamiento"):
-            if nombre_al:
-                fila = [pais_al, nombre_al, checkin.strftime("%Y-%m-%d"), checkout.strftime("%Y-%m-%d"), link_bk]
-                if enviar_a_google("alojamientos", fila): st.rerun()
-    st.dataframe(df_alojamientos, use_container_width=True, hide_index=True)
+def obtener_ciudad_por_defecto(fecha):
+    if fecha == "2027-06-22" or fecha == "2027-07-07":
+        return "Santiago (Inicio/Fin)"
+    elif fecha in ["2027-06-23", "2027-06-24", "2027-06-25"]:
+        return "París (Francia)"
+    elif fecha in ["2027-06-26", "2027-06-27", "2027-06-28"]:
+        return "Venecia (Italia)"
+    elif fecha in ["2027-06-29", "2027-06-30", "2027-07-01", "2027-07-02", "2027-07-03"]:
+        return "Roma (Italia)"
+    elif fecha in ["2027-07-04", "2027-07-05", "2027-07-06"]:
+        return "París (Francia)"
+    return "Por definir"
 
-elif seleccion == "🗺️ Itinerario x Horas":
-    st.title("🗺️ Cronograma de Actividades por Horas")
-    with st.form("form_itinerario", clear_on_submit=True):
-        fecha_ev = st.date_input("Fecha")
-        hora_ev = st.time_input("Hora del Evento")
-        ciudad_ev = st.selectbox("Ciudad / Destino", CIUDADES)
-        actividad = st.text_input("Actividad").strip()
-        lugar = st.text_input("Ubicación").strip()
-        reserva = st.text_input("Notas / Reserva").strip()
-        if st.form_submit_button("💾 Guardar Hito"):
-            if actividad:
-                fila = [fecha_ev.strftime("%Y-%m-%d"), hora_ev.strftime("%H:%M"), ciudad_ev, actividad, lugar, reserva]
-                if enviar_a_google("itinerario", fila): st.rerun()
-    st.dataframe(df_itinerario, use_container_width=True, hide_index=True)
+if os.path.exists(CALENDARIO_RUTAS_FILE):
+    df_cal_rutas = pd.read_csv(CALENDARIO_RUTAS_FILE)
+    df_cal_rutas = df_cal_rutas[df_cal_rutas["Fecha"].isin(rango_fechas_viaje)].copy()
+    df_cal_rutas["Notas del Día"] = df_cal_rutas["Notas del Día"].fillna("").astype(str)
+else:
+    ciudades_defecto = [obtener_ciudad_por_defecto(f) for f in rango_fechas_viaje]
+    df_cal_rutas = pd.DataFrame({"Fecha": rango_fechas_viaje, "Día de la Semana": dias_semana_mapeo, "País / Ciudad donde Estaremos": ciudades_defecto, "Notas del Día": ""})
+    df_cal_rutas["Notas del Día"] = df_cal_rutas["Notas del Día"].astype(str)
+    df_cal_rutas.to_csv(CALENDARIO_RUTAS_FILE, index=False)
 
-elif seleccion == "💰 Gastos Personales":
-    st.title("💰 Control de Cuentas por Integrante")
-    tabs = st.tabs([f"👤 {p}" for p in INTEGRANTES])
-    for idx, p in enumerate(INTEGRANTES):
-        with tabs[idx]: renderizar_pestaña_persona(p)
+# Configuración visual de la página
+st.set_page_config(page_title="Planificador de Viajes Pro 2027", page_icon="✈️", layout="wide")
 
-elif seleccion == "🎒 Check-list de Maleta":
-    st.title("🎒 Maleta Virtual Colectiva")
-    st.dataframe(df_checklist, use_container_width=True, hide_index=True)
+st.markdown("""
+    <style>
+    .block-container { padding-top: 1.5rem; }
+    .stMetric { background-color: #ffffff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e9ecef; }
+    div[data-testid="stForm"] { background-color: #f8f9fa; border-radius: 12px; padding: 20px; border: 1px solid #e9ecef; }
+    div[data-testid="stNotification"] p { font-size: 1.15rem !important; font-weight: 500 !important; }
+    </style>
+""", unsafe_allow_html=True)
+
+CONFIG_COLUMNA_RUTA = {
+    "Fecha": st.column_config.TextColumn("Fecha", disabled=True),
+    "Día de la Semana": st.column_config.TextColumn("Día de la Semana", disabled=True),
+    "País / Ciudad donde Estaremos": st.column_config.SelectboxColumn("Elegir Destino", options=CIUDADES, required=True),
+    "Notas del Día": st.column_config.TextColumn("Notas del Día")
+}
+CONFIG_COLUMNA_ITINERARIO = {"Ciudad": st.column_config.SelectboxColumn("Ciudad / Destino", options=CIUDADES, required=True)}
+CONFIG_COLUMNA_ALOJAMIENTOS = {"País / Ciudad": st.column_config.SelectboxColumn("Ubicación", options=CIUDADES, required=True), "Link de Booking / Enlace": st.column_config.LinkColumn("Link de Booking / Enlace", display_text="🌐 Abrir Reserva")}
+CONFIG_COLUMNA_GASTOS = {"Ciudad": st.column_config.SelectboxColumn("Ubicación", options=CIUDADES, required=True), "Categoría": st.column_config
