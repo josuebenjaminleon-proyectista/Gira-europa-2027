@@ -20,12 +20,19 @@ def leer_pestaña(nombre_pestaña):
     except:
         return pd.DataFrame()
 
-# Cargar datos desde la nube (Usando los nombres exactos que busca tu Sheet)
+# Cargar datos desde la nube
 df_itinerario = leer_pestaña("itinerario")
 df_gastos = leer_pestaña("gastos")
 df_cal_rutas = leer_pestaña("rutas")
 df_alojamientos = leer_pestaña("alojamientos")
 df_checklist = leer_pestaña("checklist")
+
+# --- MENSAJE DE DIAGNÓSTICO EN VIVO ---
+st.sidebar.markdown("### 🔍 Estado de Conexión")
+if df_gastos.empty and df_itinerario.empty:
+    st.sidebar.warning("⚠️ No se lee ninguna pestaña. Verifica que el enlace público de Google Sheets sea correcto.")
+else:
+    st.sidebar.success("🟢 Conectado con éxito a Google Sheets")
 
 if df_gastos.empty: df_gastos = pd.DataFrame(columns=["Fecha", "Concepto / Ítem", "Categoría", "Ciudad", "Costo ($)", "Persona"])
 if df_itinerario.empty: df_itinerario = pd.DataFrame(columns=["Fecha", "Hora", "Ciudad", "Actividad", "Lugar / Ubicación", "Reserva / Ticket"])
@@ -47,7 +54,8 @@ def enviar_a_google(nombre_pestaña, lista_datos):
                 st.balloons()
                 return True
             else:
-                st.error(f"Error: {respuesta_json.get('message')}")
+                st.error(f"Error devuelto por Google Sheets: {respuesta_json.get('message')}")
+                st.info(f"💡 Pista: Ve a tu Google Sheets y verifica que la pestaña de abajo se llame exactamente '{nombre_pestaña}' sin mayúsculas ni espacios.")
         else:
             st.error(f"Error de conexión con el servidor (Código {res.status_code}).")
     except Exception as e:
@@ -84,7 +92,6 @@ def renderizar_pestaña_persona(p_nombre):
         if st.form_submit_button("💾 Guardar Gasto"):
             if concepto and monto_g > 0:
                 fila = [f_gasto.strftime("%Y-%m-%d"), concepto, cat_g, ciudad_g, float(monto_g), p_nombre]
-                # Enviamos el nombre tal cual está en la hoja de cálculo
                 if enviar_a_google("gastos", fila):
                     st.rerun()
             else:
