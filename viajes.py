@@ -115,4 +115,11 @@ CONFIG_COLUMNA_CHECKLIST = {
 
 # --- MENÚ LATERAL ---
 st.sidebar.markdown("# ✈️ Euro-Tour 2027")
-seleccion = st.sidebar.radio("Ir a la sección:",
+seleccion = st.sidebar.radio("Ir a la sección:", ["📊 Tablero y Finanzas", "🗓️ Ruta País 2027", "🏨 Alojamientos y Links", "🗺️ Itinerario x Horas", "💰 Gastos Personales", "🎒 Check-list de Maleta"])
+
+def renderizar_pestaña_persona(p_nombre):
+    # Limpiar prefijo para evitar conflictos en componentes
+    p_id = p_nombre.replace(" ", "").replace("/", "")
+    df_p = df_gastos[df_gastos["Persona"] == p_nombre].copy()
+    gasto_total_p = df_p["Costo ($)"].sum() if not df_p.empty else 0
+    st.metric(label=f"Monto Total Acumulado — {p_nombre}", value=f"${gasto_
